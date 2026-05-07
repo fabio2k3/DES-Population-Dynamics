@@ -98,9 +98,6 @@ class DESEngine:
           - Con prob 1-p  → AGE_TRANSITION al cumplir el límite superior.
           - Sin rango     → DEATH inmediata (superó los 125 años).
         """
-        # Actualizar edad al instante real de entrada al rango
-        person.age = person.age_at(entry_time)
-
         current = None
         for lo, hi, prob in DEATH_PROB[person.sex]:
             if lo <= person.age < hi:
@@ -128,12 +125,12 @@ class DESEngine:
             return
 
         person.alive = False
-        person.age   = person.age_at(evt.time)   # edad exacta al morir
+        person.age   = person.age + (evt.time - self.clock)
 
         if person.partner is not None:
-            partner          = person.partner
-            person.partner   = None
-            partner.partner  = None
+            partner         = person.partner
+            person.partner  = None
+            partner.partner = None
             partner.in_grief = True
             lam = partner.grief_lambda()
             if lam:
@@ -150,7 +147,7 @@ class DESEngine:
         person = evt.person
         if not person.alive:
             return
-        # _schedule_fate actualizará person.age mediante age_at()
+        person.age = evt.time
         self._schedule_fate(person, evt.time)
 
     # ── Snapshots ────────────────────────────────────────────────────────────
