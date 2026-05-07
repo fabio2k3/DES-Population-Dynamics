@@ -16,8 +16,10 @@ from src.generadores import RandomVariables
 from src.modelo import Person, DEATH_PROB, generate_population
 
 
-
+# ─────────────────────────────────────────────────────────────────────────────
 # TIPOS DE EVENTO
+# ─────────────────────────────────────────────────────────────────────────────
+
 class EventType(Enum):
     DEATH           = auto()
     AGE_TRANSITION  = auto()
@@ -29,7 +31,10 @@ class EventType(Enum):
     BIRTH           = auto()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 # EVENTO
+# ─────────────────────────────────────────────────────────────────────────────
+
 @dataclass(order=True)
 class Event:
     """
@@ -42,7 +47,10 @@ class Event:
     person      : Person      = field(compare=False)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 # MOTOR DES
+# ─────────────────────────────────────────────────────────────────────────────
+
 class DESEngine:
     """
     Motor de Simulación de Eventos Discretos.
@@ -67,7 +75,8 @@ class DESEngine:
         self.population_snapshot = []     # (año, n_vivos)
         self._next_snapshot      = 10.0
 
-    # FEL 
+    # ── FEL ─────────────────────────────────────────────────────────────────
+
     def schedule(self, time: float, event_type: EventType, person: Person) -> None:
         """Inserta un evento en la FEL. Descarta eventos fuera del horizonte."""
         if time > self.horizon:
@@ -80,7 +89,8 @@ class DESEngine:
         ))
         self._counter += 1
 
-    # Lógica de supervivencia
+    # ── Lógica de supervivencia ──────────────────────────────────────────────
+
     def _schedule_fate(self, person: Person, entry_time: float) -> None:
         """
         Decide el destino de una persona al entrar a un rango de edad:
@@ -88,6 +98,9 @@ class DESEngine:
           - Con prob 1-p  → AGE_TRANSITION al cumplir el límite superior.
           - Sin rango     → DEATH inmediata (superó los 125 años).
         """
+        # Actualizar edad al instante real de entrada al rango
+        person.age = person.age_at(entry_time)
+
         current = None
         for lo, hi, prob in DEATH_PROB[person.sex]:
             if lo <= person.age < hi:
@@ -107,19 +120,20 @@ class DESEngine:
         else:
             self.schedule(entry_time + years_left, EventType.AGE_TRANSITION, person)
 
-    # Manejadores 
+    # ── Manejadores ─────────────────────────────────────────────────────────
+
     def handle_death(self, evt: Event) -> None:
         person = evt.person
         if not person.alive:
             return
 
         person.alive = False
-        person.age   = person.age + (evt.time - self.clock)
+        person.age   = person.age_at(evt.time)   # edad exacta al morir
 
         if person.partner is not None:
-            partner         = person.partner
-            person.partner  = None
-            partner.partner = None
+            partner          = person.partner
+            person.partner   = None
+            partner.partner  = None
             partner.in_grief = True
             lam = partner.grief_lambda()
             if lam:
@@ -136,15 +150,17 @@ class DESEngine:
         person = evt.person
         if not person.alive:
             return
-        person.age = evt.time
+        # _schedule_fate actualizará person.age mediante age_at()
         self._schedule_fate(person, evt.time)
 
-    # Snapshots 
+    # ── Snapshots ────────────────────────────────────────────────────────────
+
     def _snapshot(self) -> None:
         alive = sum(1 for p in self.population if p.alive)
         self.population_snapshot.append((round(self.clock, 1), alive))
 
-    # Loop principal
+    # ── Loop principal ───────────────────────────────────────────────────────
+
     def run(self) -> None:
         """Ejecuta la simulación hasta `self.horizon`."""
         print(f"\n{'═'*55}")
@@ -182,7 +198,8 @@ class DESEngine:
         print(f"  Eventos procesados : {processed}")
         print(f"  Reloj final        : {self.clock:.1f} años\n")
 
-    #  Reporte
+    # ── Reporte ─────────────────────────────────────────────────────────────
+
     def report(self) -> None:
         alive   = [p for p in self.population if p.alive]
         alive_f = sum(1 for p in alive if p.sex == "F")
