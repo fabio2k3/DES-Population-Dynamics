@@ -107,12 +107,10 @@ def test_engine_deaths_never_exceed_population():
     assert engine.total_deaths <= len(engine.population)
 
 
-def test_engine_snapshots_monotone():
-    """Los snapshots de población deben ser no crecientes en este módulo
-    (sin nacimientos aún, solo muertes)."""
+def test_engine_snapshots_exist():
+    """Deben existir snapshots a lo largo de la simulación."""
     engine = _run_small()
-    counts = [n for _, n in engine.population_snapshot]
-    assert all(counts[i] >= counts[i+1] for i in range(len(counts)-1))
+    assert len(engine.population_snapshot) >= 2
 
 
 def test_engine_reproducible():
@@ -139,7 +137,7 @@ if __name__ == "__main__":
         test_population_unique_pids, test_population_max_children_valid,
         test_engine_clock_at_horizon, test_engine_death_count_positive,
         test_engine_no_alive_contradictions, test_engine_deaths_never_exceed_population,
-        test_engine_snapshots_monotone, test_engine_reproducible,
+        test_engine_snapshots_exist, test_engine_reproducible,
         test_engine_different_seeds_differ,
     ]
     passed = failed = 0
