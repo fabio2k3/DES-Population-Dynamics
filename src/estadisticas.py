@@ -1,0 +1,323 @@
+"""
+Módulo: Recolector de Estadísticas
+====================================
+Inyecta hooks en el DESEngine para recopilar métricas detalladas
+sin mezclar lógica de análisis con lógica de simulación.
+
+Métricas recopiladas:
+  - Población total, mujeres y hombres vivos en cada snapshot
+  - Nacimientos y muertes acumuladas por década
+  - Ratio F/M a lo largo del tiempo
+  - Distribución de edades en t=0, t=50 y t=100
+  - Parejas activas por snapshot
+  - Resumen por corrida (para análisis multi-corrida)
+"""
+
+from __future__ import annotations
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.motor_des import DESEngine
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SNAPSHOT DETALLADO
+# ─────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class Snapshot:
+    year          : float
+    total_alive   : int
+    alive_f       : int
+    alive_m       : int
+    couples_active: int
+    births_accum  : int
+    deaths_accum  : int
+
+    @property
+    def ratio_fm(self) -> float:
+        """Ratio F / total entre vivos. 0.5 = equilibrio."""
+        return self.alive_f / self.total_alive if self.total_alive else 0.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RESUMEN DE UNA CORRIDA
+# ─────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class RunSummary:
+    seed              : int
+    initial_pop       : int
+    final_alive       : int
+    total_births      : int
+    total_deaths      : int
+    couples_formed    : int
+    total_breakups    : int
+    snapshots         : list[Snapshot] = field(default_factory=list)
+    age_dist_t0       : list[float]    = field(default_factory=list)
+    age_dist_t50      : list[float]    = field(default_factory=list)
+    age_dist_t100     : list[float]    = field(default_factory=list)
+    births_per_decade : list[int]      = field(default_factory=list)
+    deaths_per_decade : list[int]      = field(default_factory=list)
+
+    @property
+    def growth_rate(self) -> float:
+        """Cambio porcentual de población respecto al inicio."""
+        return (self.final_alive - self.initial_pop) / self.initial_pop * 100
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COLECTOR
+# ─────────────────────────────────────────────────────────────────────────────
+
+class StatsCollector:
+    """
+    Se conecta a un DESEngine ya ejecutado y extrae todas las métricas.
+    Uso:
+        engine.run()
+        collector = StatsCollector(engine, seed=42)
+        summary   = collector.collect()
+    """
+
+    SNAPSHOT_YEARS = list(range(0, 101, 10))   # cada 10 años
+
+    def __init__(self, engine: "DESEngine", seed: int = 0):
+        self.engine = engine
+        self.seed   = seed
+
+    def collect(self) -> RunSummary:
+        eng = self.engine
+        pop = eng.population
+
+        # ── Snapshots detallados ─────────────────────────────────────────────
+        snapshots: list[Snapshot] = []
+        snap_dict = dict(eng.population_snapshot)   # {año: n_vivos}
+
+        for year in self.SNAPSHOT_YEARS:
+            # Reconstruir estado en `year` a partir de los datos de la corrida
+            alive_at = [
+                p for p in pop
+                if p.birth_time <= year and (p.alive or p.age >= year - p.birth_time)
+            ]
+            # Mejor estimación: filtrar por birth_time y tiempo de muerte
+            truly_alive = [
+                p for p in pop
+                if p.birth_time <= year
+                and (p.alive or (not p.alive and p.age > (year - p.birth_time)))
+            ]
+            # Aproximación pragmática: usar snapshots del engine
+            n_alive = snap_dict.get(float(year), snap_dict.get(year, None))
+            if n_alive is None:
+                # Interpolar entre el snapshot anterior y siguiente
+                keys = sorted(snap_dict.keys())
+                prev = max((k for k in keys if k <= year), default=keys[0])
+                n_alive = snap_dict[prev]
+
+            alive_f = sum(
+                1 for p in pop
+                if p.sex == "F" and p.alive and p.birth_time <= year
+            )
+            alive_m = n_alive - alive_f
+            couples = sum(
+                1 for p in pop
+                if p.partner is not None and p.sex == "F"
+            ) if year == eng.horizon else 0   # solo contamos al final exacto
+
+            snapshots.append(Snapshot(
+                year           = year,
+                total_alive    = n_alive,
+                alive_f        = max(0, alive_f),
+                alive_m        = max(0, alive_m),
+                couples_active = couples,
+                births_accum   = eng.total_births,    # acumulado final
+                deaths_accum   = eng.total_deaths,
+            ))
+
+        # ── Snapshots con conteo exacto de F/M usando engine.population_snapshot ─
+        # Reconstruir F/M por snapshot directamente del engine
+        snapshots = self._build_snapshots_exact()
+
+        # ── Distribuciones de edad ───────────────────────────────────────────
+        def ages_at(t: float) -> list[float]:
+            return [
+                p.age_at(t)
+                for p in pop
+                if p.birth_time <= t and p.alive or
+                   (p.birth_time <= t and not p.alive and p.age >= p.age_at(t))
+            ]
+
+        age_t0   = [p.age_at(0)           for p in pop if p.birth_time <= 0]
+        age_t50  = [p.age_at(50)          for p in pop
+                    if p.birth_time <= 50 and (p.alive or p.age >= p.age_at(50))]
+        age_t100 = [p.age_at(eng.horizon) for p in pop if p.alive]
+
+        # ── Nacimientos y muertes por década ─────────────────────────────────
+        births_per_decade = self._count_per_decade(
+            [p.birth_time for p in pop if p.birth_time > 0]
+        )
+        deaths_per_decade = self._count_per_decade(
+            [p.birth_time + (p.age - p.age_at(p.birth_time))
+             for p in pop if not p.alive],
+            use_age_at_death=True
+        )
+
+        return RunSummary(
+            seed              = self.seed,
+            initial_pop       = sum(1 for p in pop if p.birth_time <= 0),
+            final_alive       = sum(1 for p in pop if p.alive),
+            total_births      = eng.total_births,
+            total_deaths      = eng.total_deaths,
+            couples_formed    = eng.total_couples_formed,
+            total_breakups    = eng.total_breakups,
+            snapshots         = snapshots,
+            age_dist_t0       = age_t0,
+            age_dist_t50      = age_t50,
+            age_dist_t100     = age_t100,
+            births_per_decade = births_per_decade,
+            deaths_per_decade = self._deaths_per_decade(),
+        )
+
+    def _build_snapshots_exact(self) -> list[Snapshot]:
+        """
+        Construye snapshots usando directamente los datos del engine,
+        que ya registra (año, n_vivos) cada 10 años.
+        """
+        eng  = self.engine
+        pop  = eng.population
+        snaps: list[Snapshot] = []
+
+        snap_map = {}
+        for year, n in eng.population_snapshot:
+            snap_map.setdefault(int(round(year)), n)
+
+        for year in self.SNAPSHOT_YEARS:
+            n_total = snap_map.get(year, 0)
+
+            # Para F/M: contar personas vivas nacidas antes de `year`
+            # y que su edad al morir supere (year - birth_time)
+            alive_f = sum(
+                1 for p in pop
+                if p.sex == "F"
+                and p.birth_time <= year
+                and (p.alive or p.age > (year - p.birth_time))
+            )
+            alive_m = sum(
+                1 for p in pop
+                if p.sex == "M"
+                and p.birth_time <= year
+                and (p.alive or p.age > (year - p.birth_time))
+            )
+
+            # Normalizar al conteo real del engine
+            total_fm = alive_f + alive_m
+            if total_fm > 0 and n_total > 0:
+                scale  = n_total / total_fm
+                alive_f = round(alive_f * scale)
+                alive_m = n_total - alive_f
+
+            snaps.append(Snapshot(
+                year           = year,
+                total_alive    = n_total,
+                alive_f        = alive_f,
+                alive_m        = alive_m,
+                couples_active = 0,
+                births_accum   = eng.total_births,
+                deaths_accum   = eng.total_deaths,
+            ))
+
+        return snaps
+
+    def _count_per_decade(self, times: list[float],
+                          use_age_at_death: bool = False) -> list[int]:
+        """Cuenta cuántos eventos caen en cada década [0-10), [10-20) ... [90-100)."""
+        counts = [0] * 10
+        for t in times:
+            if 0 < t <= 100:
+                idx = min(int(t // 10), 9)
+                counts[idx] += 1
+        return counts
+
+    def _deaths_per_decade(self) -> list[int]:
+        """Muertes por década usando la edad real al fallecer."""
+        counts = [0] * 10
+        for p in self.engine.population:
+            if not p.alive:
+                # tiempo de muerte = birth_time + age (age se actualiza al morir)
+                t_death = p.birth_time + p.age
+                if 0 < t_death <= 100:
+                    idx = min(int(t_death // 10), 9)
+                    counts[idx] += 1
+        return counts
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ANÁLISIS MULTI-CORRIDA
+# ─────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class MultiRunAnalysis:
+    """Estadísticas agregadas sobre N corridas independientes."""
+    n_runs         : int
+    summaries      : list[RunSummary]
+
+    def _values(self, attr: str) -> list:
+        return [getattr(s, attr) for s in self.summaries]
+
+    def mean(self, attr: str) -> float:
+        vals = self._values(attr)
+        return sum(vals) / len(vals)
+
+    def std(self, attr: str) -> float:
+        vals  = self._values(attr)
+        m     = sum(vals) / len(vals)
+        return (sum((v - m) ** 2 for v in vals) / len(vals)) ** 0.5
+
+    def ci_95(self, attr: str) -> tuple[float, float]:
+        """Intervalo de confianza del 95% (aproximación normal)."""
+        m   = self.mean(attr)
+        s   = self.std(attr)
+        z   = 1.96
+        n   = self.n_runs
+        margin = z * s / (n ** 0.5)
+        return (m - margin, m + margin)
+
+    def pop_trajectory(self) -> tuple[list[float], list[float], list[float]]:
+        """
+        Devuelve (years, mean_alive, std_alive) para graficar la trayectoria
+        media con banda de varianza.
+        """
+        years = [s.year for s in self.summaries[0].snapshots]
+        by_year: list[list[int]] = [[] for _ in years]
+
+        for summary in self.summaries:
+            for i, snap in enumerate(summary.snapshots):
+                by_year[i].append(snap.total_alive)
+
+        means = [sum(v) / len(v) for v in by_year]
+        stds  = [
+            (sum((x - m) ** 2 for x in v) / len(v)) ** 0.5
+            for v, m in zip(by_year, means)
+        ]
+        return years, means, stds
+
+    def print_summary(self) -> None:
+        sep = "─" * 55
+        print(f"\n{sep}")
+        print(f"  ANÁLISIS MULTI-CORRIDA  ({self.n_runs} corridas)")
+        print(sep)
+
+        metrics = [
+            ("Población final viva",   "final_alive"),
+            ("Nacimientos totales",    "total_births"),
+            ("Muertes totales",        "total_deaths"),
+            ("Parejas formadas",       "couples_formed"),
+            ("Rupturas",               "total_breakups"),
+        ]
+        for label, attr in metrics:
+            m  = self.mean(attr)
+            sd = self.std(attr)
+            lo, hi = self.ci_95(attr)
+            print(f"  {label:28s}: {m:7.1f} ± {sd:5.1f}  "
+                  f"IC95% [{lo:6.1f}, {hi:6.1f}]")
+        print(sep)

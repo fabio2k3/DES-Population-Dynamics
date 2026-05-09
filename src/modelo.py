@@ -49,6 +49,29 @@ _TOTAL        = sum(p for _, p in _CHILDREN_RAW)
 CHILDREN_VALUES = [v for v, _ in _CHILDREN_RAW]
 CHILDREN_PROBS  = [p / _TOTAL for _, p in _CHILDREN_RAW]   # normalizadas
 
+# Probabilidad de establecer pareja según diferencia de edad (años)
+AGE_DIFF_PROB = [
+    (0,   5,   0.45),
+    (5,   10,  0.40),
+    (10,  15,  0.35),
+    (15,  20,  0.25),
+    (20,  200, 0.15),
+]
+
+# Número de bebés en parto múltiple
+# partos multiples — normalizadas
+_MB_RAW               = [0.70, 0.18, 0.08, 0.04, 0.02]
+_MB_TOTAL             = sum(_MB_RAW)
+MULTIPLE_BIRTH_VALUES = [1, 2, 3, 4, 5]
+MULTIPLE_BIRTH_PROBS  = [p / _MB_TOTAL for p in _MB_RAW]
+
+BREAKUP_PROB        = 0.20  # probabilidad de ruptura por chequeo (enunciado)
+PREGNANCY_DURATION  = 0.75  # duración del embarazo (~9 meses en años)
+PARTNER_ATTEMPT_LAM = 3.0   # Exp(3): intento de pareja cada ~4 meses
+PREGNANCY_CHECK_LAM = 4.0   # Exp(4): chequeo de embarazo cada ~3 meses
+BREAKUP_CHECK_LAM   = 0.5   # Exp(0.5): chequeo de ruptura cada ~2 años
+                            # (el enunciado da la prob=0.2 pero no el intervalo)
+
 
 def _lookup(age: float, table: list) -> Optional[float]:
     """Devuelve el valor del primer rango [lo, hi) que contiene `age`."""
@@ -67,12 +90,19 @@ class Person:
     """Entidad base de la simulación."""
     pid          : int
     sex          : str            # 'M' | 'F'
-    age          : float          # años en t=0
+    age          : float          # edad actual (se actualiza en cada evento)
+    birth_time   : float = 0.0   # instante de simulación en que nació
+                                  # para población inicial: birth_time = -age_inicial
     partner      : Optional[Person] = field(default=None, repr=False)
     children     : int   = 0
     max_children : int   = 2
     in_grief     : bool  = False
+    pregnant     : bool  = False   # True durante los ~9 meses de gestación
     alive        : bool  = True
+
+    def age_at(self, t: float) -> float:
+        """Edad exacta en el instante t de simulación."""
+        return t - self.birth_time
 
     # ── Consultas de tabla ───────────────────────────────────────────────────
 
@@ -119,10 +149,12 @@ def generate_population(M: int, H: int, rng: RandomVariables) -> list[Person]:
     pid = 0
     for sex, count in [("F", M), ("M", H)]:
         for _ in range(count):
+            age = rng.uniform(0.0, 100.0)
             person = Person(
                 pid          = pid,
                 sex          = sex,
-                age          = rng.uniform(0.0, 100.0),
+                age          = age,
+                birth_time   = -age,    # nació `age` años antes del inicio
                 max_children = rng.discrete_choice(CHILDREN_VALUES, CHILDREN_PROBS),
             )
             population.append(person)

@@ -11,9 +11,9 @@ No depende de ningún otro módulo del proyecto.
 import math
 
 
-
+# ─────────────────────────────────────────────────────────────────────────────
 # LCG — Linear Congruential Generator
-
+# ─────────────────────────────────────────────────────────────────────────────
 # Fórmula:  X_{n+1} = (a · X_n + c) mod m
 # Parámetros glibc: período completo 2^31, buen comportamiento estadístico.
 
@@ -42,8 +42,10 @@ class LCG:
         return f"LCG(state={self._state}, m={self._M}, a={self._A}, c={self._C})"
 
 
-
+# ─────────────────────────────────────────────────────────────────────────────
 # RandomVariables — colección de distribuciones
+# ─────────────────────────────────────────────────────────────────────────────
+
 class RandomVariables:
     """
     Generadores de variables aleatorias basados en un LCG compartido.
