@@ -50,9 +50,6 @@ def _save(fig: plt.Figure, path: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def plot_population_evolution(summary: "RunSummary", path: str) -> None:
-    """
-    Líneas: total vivos, mujeres vivas, hombres vivos — cada 10 años.
-    """
     years   = [s.year        for s in summary.snapshots]
     total   = [s.total_alive for s in summary.snapshots]
     females = [s.alive_f     for s in summary.snapshots]
@@ -81,10 +78,6 @@ def plot_population_evolution(summary: "RunSummary", path: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def plot_fm_ratio(summary: "RunSummary", path: str) -> None:
-    """
-    Línea del ratio mujeres / total a lo largo del tiempo.
-    Línea de referencia en 0.5 (equilibrio perfecto).
-    """
     years  = [s.year     for s in summary.snapshots]
     ratios = [s.ratio_fm for s in summary.snapshots]
 
@@ -117,9 +110,6 @@ def plot_fm_ratio(summary: "RunSummary", path: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def plot_births_deaths_decade(summary: "RunSummary", path: str) -> None:
-    """
-    Gráfica de barras agrupadas: nacimientos vs muertes por cada década.
-    """
     decades = [f"{i*10}–{i*10+10}" for i in range(10)]
     births  = summary.births_per_decade
     deaths  = summary.deaths_per_decade
@@ -133,7 +123,6 @@ def plot_births_deaths_decade(summary: "RunSummary", path: str) -> None:
     bars_d = ax.bar(x + width/2, deaths, width, color=C_DEATH,
                     label="Muertes",     edgecolor="white", linewidth=0.5)
 
-    # Etiquetas sobre las barras
     for bar in list(bars_b) + list(bars_d):
         h = bar.get_height()
         if h > 0:
@@ -157,10 +146,6 @@ def plot_births_deaths_decade(summary: "RunSummary", path: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def plot_age_distribution(summary: "RunSummary", path: str) -> None:
-    """
-    Tres histogramas superpuestos de la distribución de edades
-    en los instantes t=0, t=50 y t=100.
-    """
     datasets = [
         (summary.age_dist_t0,   "t = 0 años",   C_TOTAL,  0.55),
         (summary.age_dist_t50,  "t = 50 años",  C_FEMALE, 0.55),
@@ -193,9 +178,6 @@ def plot_age_distribution(summary: "RunSummary", path: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def plot_multi_run_band(multi: "MultiRunAnalysis", path: str) -> None:
-    """
-    Trayectoria media de la población ± 1σ sobre N corridas independientes.
-    """
     years, means, stds = multi.pop_trajectory()
     means = np.array(means)
     stds  = np.array(stds)
@@ -226,15 +208,6 @@ def plot_multi_run_band(multi: "MultiRunAnalysis", path: str) -> None:
 def plot_all(summary: "RunSummary",
              multi: "MultiRunAnalysis | None" = None,
              output_dir: str = "resultados/") -> None:
-    """
-    Genera y guarda todas las gráficas del proyecto.
-
-    Parameters
-    ----------
-    summary    : resultado de una corrida representativa
-    multi      : análisis multi-corrida (opcional)
-    output_dir : directorio de salida
-    """
     print(f"\n  Generando gráficas en '{output_dir}'...")
 
     plot_population_evolution(

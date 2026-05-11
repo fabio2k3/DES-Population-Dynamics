@@ -43,11 +43,31 @@ GRIEF_LAMBDA = [
     (60, 125, 0.25),   # 4 años
 ]
 
-# Número máximo de hijos deseados — probabilidades brutas del enunciado
-_CHILDREN_RAW = [(1, 0.60), (2, 0.75), (3, 0.35), (4, 0.20), (5, 0.10), (6, 0.05)]
-_TOTAL        = sum(p for _, p in _CHILDREN_RAW)
-CHILDREN_VALUES = [v for v, _ in _CHILDREN_RAW]
-CHILDREN_PROBS  = [p / _TOTAL for _, p in _CHILDREN_RAW]   # normalizadas
+# ── BUG 5 FIX ────────────────────────────────────────────────────────────────
+# Las probabilidades del enunciado son independientes (cada nivel se evalúa
+# como un Bernoulli separado), NO forman una distribución discreta única.
+# El número máximo de hijos deseados se determina iterando: si Bernoulli(p)
+# es True, el deseo aumenta en 1; al primer fallo se detiene.
+# Ejemplo: querer ≥2 hijos = P(nivel1=True) AND P(nivel2=True) = 0.60×0.75
+#
+# Tabla del enunciado: prob de querer AL MENOS ese número de hijos.
+CHILDREN_PROB_LEVELS = [0.60, 0.75, 0.35, 0.20, 0.10, 0.05]
+MAX_POSSIBLE_CHILDREN = len(CHILDREN_PROB_LEVELS)   # 6
+
+
+def sample_max_children(rng: RandomVariables) -> int:
+    """
+    Muestrea el número máximo de hijos deseados usando Bernoullis independientes.
+    Retorna al menos 1 (si el primer nivel falla el mínimo sigue siendo 1).
+    """
+    count = 0
+    for prob in CHILDREN_PROB_LEVELS:
+        if rng.bernoulli(prob):
+            count += 1
+        else:
+            break
+    return max(1, count)
+
 
 # Probabilidad de establecer pareja según diferencia de edad (años)
 AGE_DIFF_PROB = [
@@ -58,8 +78,7 @@ AGE_DIFF_PROB = [
     (20,  200, 0.15),
 ]
 
-# Número de bebés en parto múltiple
-# partos multiples — normalizadas
+# Número de bebés en parto múltiple — normalizadas
 _MB_RAW               = [0.70, 0.18, 0.08, 0.04, 0.02]
 _MB_TOTAL             = sum(_MB_RAW)
 MULTIPLE_BIRTH_VALUES = [1, 2, 3, 4, 5]
@@ -70,7 +89,6 @@ PREGNANCY_DURATION  = 0.75  # duración del embarazo (~9 meses en años)
 PARTNER_ATTEMPT_LAM = 3.0   # Exp(3): intento de pareja cada ~4 meses
 PREGNANCY_CHECK_LAM = 4.0   # Exp(4): chequeo de embarazo cada ~3 meses
 BREAKUP_CHECK_LAM   = 0.5   # Exp(0.5): chequeo de ruptura cada ~2 años
-                            # (el enunciado da la prob=0.2 pero no el intervalo)
 
 
 def _lookup(age: float, table: list) -> Optional[float]:
@@ -143,7 +161,7 @@ def generate_population(M: int, H: int, rng: RandomVariables) -> list[Person]:
     """
     Crea M mujeres y H hombres con:
       - edad ~ U(0, 100)
-      - max_children sorteado con la tabla del enunciado
+      - max_children sorteado con Bernoullis independientes (BUG 5 FIX)
     """
     population: list[Person] = []
     pid = 0
@@ -155,7 +173,7 @@ def generate_population(M: int, H: int, rng: RandomVariables) -> list[Person]:
                 sex          = sex,
                 age          = age,
                 birth_time   = -age,    # nació `age` años antes del inicio
-                max_children = rng.discrete_choice(CHILDREN_VALUES, CHILDREN_PROBS),
+                max_children = sample_max_children(rng),   # BUG 5 FIX
             )
             population.append(person)
             pid += 1

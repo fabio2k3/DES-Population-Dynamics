@@ -49,18 +49,16 @@ def main():
     args = parse_args()
 
     if args.runs == 1:
-        # ── Corrida única ────────────────────────────────────────────────────
         engine, summary = run_once(args.seed, args.m, args.h, args.years)
 
         if not args.no_plots:
             plot_all(summary, multi=None, output_dir="resultados/")
 
     else:
-        # ── Múltiples corridas ───────────────────────────────────────────────
         print(f"\n  Ejecutando {args.runs} corridas independientes...\n")
         summaries = []
         for i in range(args.runs):
-            seed = args.seed + i   # semillas distintas pero reproducibles
+            seed = args.seed + i
             print(f"  Corrida {i+1}/{args.runs}  (seed={seed})")
             _, summary = run_once(seed, args.m, args.h, args.years,
                                   verbose=(i == 0))
@@ -70,8 +68,6 @@ def main():
         multi.print_summary()
 
         if not args.no_plots:
-            # Usamos la primera corrida como representativa para las gráficas
-            # individuales y el objeto multi para la banda de varianza
             plot_all(summaries[0], multi=multi, output_dir="resultados/")
 
 

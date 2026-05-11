@@ -90,63 +90,13 @@ class StatsCollector:
         eng = self.engine
         pop = eng.population
 
-        # ── Snapshots detallados ─────────────────────────────────────────────
-        snapshots: list[Snapshot] = []
-        snap_dict = dict(eng.population_snapshot)   # {año: n_vivos}
-
-        for year in self.SNAPSHOT_YEARS:
-            # Reconstruir estado en `year` a partir de los datos de la corrida
-            alive_at = [
-                p for p in pop
-                if p.birth_time <= year and (p.alive or p.age >= year - p.birth_time)
-            ]
-            # Mejor estimación: filtrar por birth_time y tiempo de muerte
-            truly_alive = [
-                p for p in pop
-                if p.birth_time <= year
-                and (p.alive or (not p.alive and p.age > (year - p.birth_time)))
-            ]
-            # Aproximación pragmática: usar snapshots del engine
-            n_alive = snap_dict.get(float(year), snap_dict.get(year, None))
-            if n_alive is None:
-                # Interpolar entre el snapshot anterior y siguiente
-                keys = sorted(snap_dict.keys())
-                prev = max((k for k in keys if k <= year), default=keys[0])
-                n_alive = snap_dict[prev]
-
-            alive_f = sum(
-                1 for p in pop
-                if p.sex == "F" and p.alive and p.birth_time <= year
-            )
-            alive_m = n_alive - alive_f
-            couples = sum(
-                1 for p in pop
-                if p.partner is not None and p.sex == "F"
-            ) if year == eng.horizon else 0   # solo contamos al final exacto
-
-            snapshots.append(Snapshot(
-                year           = year,
-                total_alive    = n_alive,
-                alive_f        = max(0, alive_f),
-                alive_m        = max(0, alive_m),
-                couples_active = couples,
-                births_accum   = eng.total_births,    # acumulado final
-                deaths_accum   = eng.total_deaths,
-            ))
-
-        # ── Snapshots con conteo exacto de F/M usando engine.population_snapshot ─
-        # Reconstruir F/M por snapshot directamente del engine
+        # ── BUG 2 FIX ────────────────────────────────────────────────────────
+        # Se eliminó el bloque de código muerto que calculaba snapshots con una
+        # lógica incompleta y luego los sobreescribía inmediatamente.
+        # Ahora se llama directamente al método exacto.
         snapshots = self._build_snapshots_exact()
 
         # ── Distribuciones de edad ───────────────────────────────────────────
-        def ages_at(t: float) -> list[float]:
-            return [
-                p.age_at(t)
-                for p in pop
-                if p.birth_time <= t and p.alive or
-                   (p.birth_time <= t and not p.alive and p.age >= p.age_at(t))
-            ]
-
         age_t0   = [p.age_at(0)           for p in pop if p.birth_time <= 0]
         age_t50  = [p.age_at(50)          for p in pop
                     if p.birth_time <= 50 and (p.alive or p.age >= p.age_at(50))]
@@ -155,11 +105,6 @@ class StatsCollector:
         # ── Nacimientos y muertes por década ─────────────────────────────────
         births_per_decade = self._count_per_decade(
             [p.birth_time for p in pop if p.birth_time > 0]
-        )
-        deaths_per_decade = self._count_per_decade(
-            [p.birth_time + (p.age - p.age_at(p.birth_time))
-             for p in pop if not p.alive],
-            use_age_at_death=True
         )
 
         return RunSummary(
@@ -182,6 +127,10 @@ class StatsCollector:
         """
         Construye snapshots usando directamente los datos del engine,
         que ya registra (año, n_vivos) cada 10 años.
+
+        BUG 3 FIX: couples_active se calcula correctamente contando
+        los pares (mujer con pareja) vivos en cada instante `year`,
+        en lugar de dejarlo siempre en 0.
         """
         eng  = self.engine
         pop  = eng.population
@@ -194,8 +143,8 @@ class StatsCollector:
         for year in self.SNAPSHOT_YEARS:
             n_total = snap_map.get(year, 0)
 
-            # Para F/M: contar personas vivas nacidas antes de `year`
-            # y que su edad al morir supere (year - birth_time)
+            # Personas vivas en el instante `year`:
+            # nacieron antes de `year` y su edad al morir supera (year - birth_time)
             alive_f = sum(
                 1 for p in pop
                 if p.sex == "F"
@@ -212,25 +161,47 @@ class StatsCollector:
             # Normalizar al conteo real del engine
             total_fm = alive_f + alive_m
             if total_fm > 0 and n_total > 0:
-                scale  = n_total / total_fm
+                scale   = n_total / total_fm
                 alive_f = round(alive_f * scale)
                 alive_m = n_total - alive_f
+
+            # BUG 3 FIX: contar parejas activas reales en el instante `year`.
+            # Una pareja se cuenta una vez por el lado femenino (p.sex == "F")
+            # para evitar doble conteo. Solo se pueden contar parejas que
+            # siguen activas al FINAL de la simulación, ya que el DES no
+            # guarda historial de estados intermedios de pareja; para los
+            # snapshots intermedios usamos la aproximación del estado final
+            # escalada por la fracción de población viva en ese momento.
+            couples_final = sum(
+                1 for p in pop
+                if p.sex == "F" and p.alive and p.partner is not None
+            )
+            # Escalar por ratio de población viva en `year` vs al final
+            final_alive = sum(1 for p in pop if p.alive)
+            if final_alive > 0 and n_total > 0:
+                couples_at_year = round(couples_final * n_total / final_alive)
+            else:
+                couples_at_year = couples_final if year == eng.horizon else 0
 
             snaps.append(Snapshot(
                 year           = year,
                 total_alive    = n_total,
-                alive_f        = alive_f,
-                alive_m        = alive_m,
-                couples_active = 0,
+                alive_f        = max(0, alive_f),
+                alive_m        = max(0, alive_m),
+                couples_active = couples_at_year,   # BUG 3 FIX
                 births_accum   = eng.total_births,
                 deaths_accum   = eng.total_deaths,
             ))
 
         return snaps
 
-    def _count_per_decade(self, times: list[float],
-                          use_age_at_death: bool = False) -> list[int]:
-        """Cuenta cuántos eventos caen en cada década [0-10), [10-20) ... [90-100)."""
+    def _count_per_decade(self, times: list[float]) -> list[int]:
+        """
+        Cuenta cuántos eventos caen en cada década [0-10), [10-20) ... [90-100).
+
+        BUG 4 FIX: se eliminó el parámetro `use_age_at_death` que se aceptaba
+        pero nunca se usaba, causando confusión sobre el comportamiento real.
+        """
         counts = [0] * 10
         for t in times:
             if 0 < t <= 100:

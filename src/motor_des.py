@@ -14,9 +14,10 @@ from src.generadores import RandomVariables
 from src.modelo import (
     Person, DEATH_PROB, AGE_DIFF_PROB,
     MULTIPLE_BIRTH_VALUES, MULTIPLE_BIRTH_PROBS,
-    BREAKUP_PROB, PREGNANCY_DURATION,
+    BREAKUP_PROB, BREAKUP_CHECK_LAM,        # BUG 1 FIX: importar la constante
+    PREGNANCY_DURATION,
     PARTNER_ATTEMPT_LAM, PREGNANCY_CHECK_LAM,
-    CHILDREN_VALUES, CHILDREN_PROBS,
+    sample_max_children,                    # BUG 5 FIX: reemplaza CHILDREN_VALUES/PROBS
 )
 
 
@@ -207,14 +208,11 @@ class DESEngine:
         """
         FIX 4: Al entrar al rango 12-45 (u otro rango adulto), la persona
         entra automáticamente al pool de búsqueda de pareja si está soltera.
-        Esto cubre tanto a bebés que cumplen 12 años como a personas que
-        pasaron a un nuevo rango en soledad.
         """
         person = evt.person
         if not person.alive:
             return
         self._schedule_fate(person, evt.time)
-        # Entrar al pool si aplica (cubre recién llegados a los 12 años)
         self._try_enter_partner_search(person, evt.time)
 
     def handle_grief_end(self, evt: Event) -> None:
@@ -226,7 +224,6 @@ class DESEngine:
         if not person.alive:
             return
         person.in_grief = False
-        # _try_enter_partner_search registra Y agenda en un solo punto
         self._try_enter_partner_search(person, evt.time)
 
     def handle_partner_attempt(self, evt: Event) -> None:
@@ -252,7 +249,6 @@ class DESEngine:
                           EventType.PARTNER_ATTEMPT, person)
             return
 
-        # FIX 3: usar pool ya limpio; filtrar igualmente por seguridad
         pool     = self._singles_m if person.sex == "F" else self._singles_f
         eligible = [c for c in pool
                     if c.alive and c.is_single() and c is not person
@@ -285,7 +281,8 @@ class DESEngine:
         self._unregister_single(candidate)
         self.total_couples_formed += 1
 
-        self.schedule(evt.time + self.rng.exponential(1.0),
+        # BUG 1 FIX: usar BREAKUP_CHECK_LAM en lugar de 1.0 hardcodeado
+        self.schedule(evt.time + self.rng.exponential(BREAKUP_CHECK_LAM),
                       EventType.BREAKUP, person)
 
         woman = person if person.sex == "F" else candidate
@@ -300,7 +297,8 @@ class DESEngine:
             self._dissolve_couple(person, evt.time)
             self.total_breakups += 1
         else:
-            self.schedule(evt.time + self.rng.exponential(1.0),
+            # BUG 1 FIX: usar BREAKUP_CHECK_LAM en lugar de 1.0 hardcodeado
+            self.schedule(evt.time + self.rng.exponential(BREAKUP_CHECK_LAM),
                           EventType.BREAKUP, person)
 
     def handle_pregnancy(self, evt: Event) -> None:
@@ -313,26 +311,23 @@ class DESEngine:
             return
         if woman.partner is None or not woman.partner.alive:
             return
-        if woman.in_grief or woman.pregnant:    # ← FIX 1
-            # Re-agenda para cuando ya no esté embarazada
+        if woman.in_grief or woman.pregnant:
             self.schedule(evt.time + self.rng.exponential(PREGNANCY_CHECK_LAM),
                           EventType.PREGNANCY, woman)
             return
 
         woman.age = woman.age_at(evt.time)
         pp        = woman.pregnancy_prob()
-        # Condición de parada: cualquiera de los dos ya alcanzó su máximo
         if (woman.children >= woman.max_children
                 or woman.partner.children >= woman.partner.max_children
                 or pp is None):
             return
 
         if self.rng.bernoulli(pp):
-            woman.pregnant = True                # ← FIX 1: marcar gestación
+            woman.pregnant = True
             self.schedule(evt.time + PREGNANCY_DURATION,
                           EventType.BIRTH, woman)
 
-        # Siguiente chequeo (no se agenda si ya quedó embarazada hasta post-parto)
         if not woman.pregnant:
             self.schedule(evt.time + self.rng.exponential(PREGNANCY_CHECK_LAM),
                           EventType.PREGNANCY, woman)
@@ -344,7 +339,7 @@ class DESEngine:
             mother.pregnant = False
             return
 
-        mother.pregnant = False   # ← FIX 1: liberar estado de gestación
+        mother.pregnant = False
 
         n_babies = self.rng.discrete_choice(MULTIPLE_BIRTH_VALUES,
                                              MULTIPLE_BIRTH_PROBS)
@@ -361,8 +356,8 @@ class DESEngine:
                 sex          = sex,
                 age          = 0.0,
                 birth_time   = evt.time,
-                max_children = self.rng.discrete_choice(CHILDREN_VALUES,
-                                                         CHILDREN_PROBS),
+                # BUG 5 FIX: usar sample_max_children en vez de discrete_choice
+                max_children = sample_max_children(self.rng),
             )
             self.population.append(baby)
             self.total_births += 1
@@ -372,7 +367,6 @@ class DESEngine:
         if father and father.alive:
             father.children += n_babies
 
-        # Reanudar chequeos de embarazo post-parto
         if (mother.alive and mother.partner and mother.partner.alive
                 and mother.children < min(mother.max_children,
                                           mother.partner.max_children)):
@@ -393,11 +387,9 @@ class DESEngine:
         print(f"  Población inicial    |  {len(self.population)} personas")
         print(f"{'═'*55}\n")
 
-        # Poblar FEL con destinos de supervivencia
         for person in self.population:
             self._schedule_fate(person, entry_time=0.0)
 
-        # Registrar solteros iniciales y agendar búsqueda de pareja
         for person in self.population:
             self._try_enter_partner_search(person, 0.0)
 
@@ -414,7 +406,6 @@ class DESEngine:
                 self._snapshot()
                 self._next_snapshot += 10.0
 
-            # FIX 3: limpieza periódica de sets de solteros
             self._events_since_cleanup += 1
             if self._events_since_cleanup >= self._CLEANUP_INTERVAL:
                 self._cleanup_singles()
