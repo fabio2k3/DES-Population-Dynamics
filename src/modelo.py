@@ -43,30 +43,19 @@ GRIEF_LAMBDA = [
     (60, 125, 0.25),   # 4 años
 ]
 
-# ── BUG 5 FIX ────────────────────────────────────────────────────────────────
-# Las probabilidades del enunciado son independientes (cada nivel se evalúa
-# como un Bernoulli separado), NO forman una distribución discreta única.
-# El número máximo de hijos deseados se determina iterando: si Bernoulli(p)
-# es True, el deseo aumenta en 1; al primer fallo se detiene.
-# Ejemplo: querer ≥2 hijos = P(nivel1=True) AND P(nivel2=True) = 0.60×0.75
-#
-# Tabla del enunciado: prob de querer AL MENOS ese número de hijos.
-CHILDREN_PROB_LEVELS = [0.60, 0.75, 0.35, 0.20, 0.10, 0.05]
-MAX_POSSIBLE_CHILDREN = len(CHILDREN_PROB_LEVELS)   # 6
+# ── Distribución de hijos deseados ──────────────────────────────────────────
+# Distribución discreta estándar del enunciado (suma = 1.0).
+# Cada valor representa el número máximo de hijos que una persona desea tener.
+CHILDREN_VALUES = [1,    2,    3,    4,    5,    6   ]
+CHILDREN_PROBS  = [0.10, 0.30, 0.40, 0.10, 0.05, 0.05]   # suma = 1.0
 
 
 def sample_max_children(rng: RandomVariables) -> int:
     """
-    Muestrea el número máximo de hijos deseados usando Bernoullis independientes.
-    Retorna al menos 1 (si el primer nivel falla el mínimo sigue siendo 1).
+    Muestrea el número máximo de hijos deseados desde la distribución
+    discreta del enunciado mediante transformada inversa.
     """
-    count = 0
-    for prob in CHILDREN_PROB_LEVELS:
-        if rng.bernoulli(prob):
-            count += 1
-        else:
-            break
-    return max(1, count)
+    return rng.discrete_choice(CHILDREN_VALUES, CHILDREN_PROBS)
 
 
 # Probabilidad de establecer pareja según diferencia de edad (años)
