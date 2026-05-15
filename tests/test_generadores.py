@@ -1,24 +1,29 @@
 """
 Tests: Generadores de Variables Aleatorias
-==========================================
+
 Verifica propiedades estadísticas básicas de LCG y RandomVariables.
-Ejecutar con: python -m pytest tests/ -v
+Ejecutar con: python tests/test_generadores.py
 """
 
 import math
 import sys, os
+
+# Permite importar módulos del proyecto desde la carpeta tests
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+# Importa el generador congruencial y las variables aleatorias
 from src.generadores import LCG, RandomVariables
 
-N = 20_000   # muestras para tests estadísticos
+# Número de muestras usado en los tests estadísticos
+N = 20_000
 
 
 def make_rng(seed: int = 0) -> RandomVariables:
+    # Crea un contenedor de variables aleatorias usando un LCG dado
     return RandomVariables(LCG(seed=seed))
 
 
-# ─── LCG ────────────────────────────────────────────────────────────────────
+# ----- LCG --------
 
 def test_lcg_range():
     """Todos los valores deben estar en (0, 1)."""
@@ -41,9 +46,10 @@ def test_lcg_different_seeds():
     assert a != b
 
 
-# ─── Uniforme ────────────────────────────────────────────────────────────────
+# ---- Uniforme ----
 
 def test_uniform_range():
+    # Verifica que los valores estén dentro del intervalo pedido
     rng = make_rng()
     vals = [rng.uniform(3.0, 7.0) for _ in range(N)]
     assert all(3.0 <= v <= 7.0 for v in vals)
@@ -58,6 +64,7 @@ def test_uniform_mean():
 
 
 def test_uniform_bad_args():
+    # Debe lanzar ValueError cuando a >= b
     rng = make_rng()
     try:
         rng.uniform(5.0, 3.0)
@@ -66,9 +73,10 @@ def test_uniform_bad_args():
         pass
 
 
-# ─── Exponencial ────────────────────────────────────────────────────────────
+# ---- Exponencial -----
 
 def test_exponential_positive():
+    # Toda exponencial debe dar valores positivos
     rng  = make_rng()
     vals = [rng.exponential(2.0) for _ in range(N)]
     assert all(v > 0 for v in vals)
@@ -92,6 +100,7 @@ def test_exponential_inverse_transform():
 
 
 def test_exponential_bad_lambda():
+    # Debe lanzar ValueError si lambda no es positiva
     rng = make_rng()
     try:
         rng.exponential(-1.0)
@@ -100,7 +109,7 @@ def test_exponential_bad_lambda():
         pass
 
 
-# ─── Bernoulli ───────────────────────────────────────────────────────────────
+# ---- Bernoulli -----
 
 def test_bernoulli_freq():
     """Frecuencia de True debe aproximarse a p."""
@@ -110,7 +119,7 @@ def test_bernoulli_freq():
     assert abs(freq - p) < 0.02, f"Freq={freq:.4f}, esperada={p}"
 
 
-# ─── Elección discreta ───────────────────────────────────────────────────────
+# ---- Elección discreta -----
 
 def test_discrete_choice_coverage():
     """Todos los valores deben aparecer en N muestras."""
@@ -122,6 +131,7 @@ def test_discrete_choice_coverage():
 
 
 def test_discrete_choice_bad_probs():
+    # Debe lanzar ValueError si las probabilidades no suman 1
     rng = make_rng()
     try:
         rng.discrete_choice([1, 2], [0.4, 0.4])
@@ -133,6 +143,7 @@ def test_discrete_choice_bad_probs():
 # ─── Ejecución directa ───────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    # Lista manual de tests para ejecutar sin pytest
     tests = [
         test_lcg_range, test_lcg_reproducible, test_lcg_different_seeds,
         test_uniform_range, test_uniform_mean, test_uniform_bad_args,
@@ -142,6 +153,8 @@ if __name__ == "__main__":
         test_discrete_choice_coverage, test_discrete_choice_bad_probs,
     ]
     passed = failed = 0
+
+    # Ejecuta cada test y cuenta cuántos pasan/fallan
     for t in tests:
         try:
             t()
@@ -150,4 +163,5 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"  ✘  {t.__name__}  →  {e}")
             failed += 1
+
     print(f"\n  {passed}/{passed+failed} tests pasaron")

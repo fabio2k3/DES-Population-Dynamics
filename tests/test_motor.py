@@ -1,6 +1,6 @@
 """
 Tests: Modelo y Motor DES
-==========================
+
 Verifica Person, generate_population y DESEngine.
 Ejecutar con: python -m pytest tests/ -v
 """
@@ -17,7 +17,7 @@ def make_rng(seed: int = 42) -> RandomVariables:
     return RandomVariables(LCG(seed=seed))
 
 
-# ─── Person ─────────────────────────────────────────────────────────────────
+# ---- Person ---
 
 def test_person_death_prob_in_range():
     """death_prob debe estar en [0, 1] para toda edad válida."""
@@ -45,7 +45,7 @@ def test_person_age_range_label():
     assert p.age_range_label() == "12-45"
 
 
-# ─── Población inicial ───────────────────────────────────────────────────────
+# ---- Población inicial ----
 
 def test_population_size():
     rng = make_rng()
@@ -74,7 +74,7 @@ def test_population_max_children_valid():
     assert all(1 <= p.max_children <= 6 for p in pop)
 
 
-# ─── Motor DES ───────────────────────────────────────────────────────────────
+# ---- Motor DES ----
 
 def _run_small(seed=42, n=100, horizon=100.0):
     rng = make_rng(seed)
@@ -127,7 +127,7 @@ def test_engine_different_seeds_differ():
     assert e1.total_deaths != e2.total_deaths
 
 
-# ─── Ejecución directa ───────────────────────────────────────────────────────
+# ---- Ejecución directa ----
 
 if __name__ == "__main__":
     tests = [

@@ -1,26 +1,32 @@
 """
-Tests: Parejas, Embarazo y Nacimientos (Día 3)
-===============================================
-Ejecutar con: python tests/test_dia3.py
+Tests: Parejas, Embarazo y Nacimientos 
+
+Ejecutar con: python tests/test_parejas_embarazo_nacimientos.py
 """
 
+# Ajustar el path para poder importar módulos del proyecto desde la carpeta tests
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+# Importar las herramientas de simulación y el motor DES
 from src.generadores import LCG, RandomVariables
 from src.modelo import Person, generate_population
 from src.motor_des import DESEngine, EventType
 
 
 def make_engine(seed=42, M=150, H=150, horizon=100.0):
+    # Crea el generador aleatorio con la semilla indicada
     rng = RandomVariables(LCG(seed=seed))
+    # Genera la población inicial
     pop = generate_population(M, H, rng)
+    # Crea el motor de simulación con ese escenario
     eng = DESEngine(pop, rng, sim_horizon=horizon)
+    # Ejecuta toda la simulación
     eng.run()
     return eng
 
 
-# ── Parejas ───────────────────────────────────────────────────────────────────
+# ----- Parejas -----
 
 def test_couples_formed():
     """Deben formarse parejas durante la simulación."""
@@ -64,7 +70,7 @@ def test_grief_persons_are_single():
                 f"Persona en duelo pid={p.pid} tiene pareja"
 
 
-# ── Nacimientos ───────────────────────────────────────────────────────────────
+# ----- Nacimientos -----
 
 def test_births_occurred():
     """Deben producirse nacimientos durante la simulación."""
@@ -99,7 +105,7 @@ def test_children_never_exceed_max():
     """Ninguna persona debe tener más hijos que su max_children."""
     eng = make_engine()
     for p in eng.population:
-        # Toleramos +1 por partos múltiples que pueden superar ligeramente
+        # Se tolera un margen pequeño por partos múltiples
         assert p.children <= p.max_children + 4, \
             f"pid={p.pid} tiene {p.children} hijos, max={p.max_children}"
 
@@ -114,7 +120,7 @@ def test_newborns_sex_distribution():
     assert 0.35 <= ratio <= 0.65, f"Ratio F entre nacidos: {ratio:.2f}"
 
 
-# ── Reproducibilidad ──────────────────────────────────────────────────────────
+# ----- Reproducibilidad -----
 
 def test_reproducible_births():
     """Misma semilla → mismo número de nacimientos."""
@@ -130,9 +136,10 @@ def test_reproducible_couples():
     assert e1.total_couples_formed == e2.total_couples_formed
 
 
-# ── Ejecución directa ─────────────────────────────────────────────────────────
+# ----- Ejecución directa ------
 
 if __name__ == "__main__":
+    # Lista manual de tests para ejecutarlos sin pytest
     tests = [
         test_couples_formed, test_no_same_sex_couples,
         test_partner_symmetry, test_dead_have_no_partner,
@@ -143,6 +150,8 @@ if __name__ == "__main__":
         test_reproducible_births, test_reproducible_couples,
     ]
     passed = failed = 0
+
+    # Ejecuta cada test y cuenta resultados
     for t in tests:
         try:
             t()
@@ -151,4 +160,5 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"  ✘  {t.__name__}  →  {e}")
             failed += 1
+
     print(f"\n  {passed}/{passed+failed} tests pasaron")

@@ -1,12 +1,14 @@
 """
 Tests: Estadísticas y Análisis Multi-corrida
-=============================================
+
 Ejecutar con: python tests/test_estadisticas.py
 """
 
+# Ajusta el path para permitir imports desde la raíz del proyecto
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+# Importa componentes del simulador y del módulo de estadísticas
 from src.generadores import LCG, RandomVariables
 from src.modelo import generate_population
 from src.motor_des import DESEngine
@@ -14,14 +16,19 @@ from src.estadisticas import StatsCollector, MultiRunAnalysis
 
 
 def make_summary(seed=42, M=100, H=100):
+    # Crea el generador aleatorio con una semilla dada
     rng = RandomVariables(LCG(seed=seed))
+    # Genera la población inicial
     pop = generate_population(M, H, rng)
+    # Instancia el motor DES con horizonte fijo de 100 años
     eng = DESEngine(pop, rng, sim_horizon=100.0)
+    # Ejecuta la simulación completa
     eng.run()
+    # Resume los resultados en un objeto de estadísticas
     return StatsCollector(eng, seed=seed).collect()
 
 
-# ── Snapshots ────────────────────────────────────────────────────────────────
+# ----- Snapshots -----
 
 def test_snapshots_count():
     """Debe haber exactamente 11 snapshots (t=0, 10, ..., 100)."""
@@ -53,25 +60,30 @@ def test_ratio_fm_range():
         assert 0.0 <= r <= 1.0, f"Ratio fuera de rango: {r} en año {snap.year}"
 
 
-# ── Totales ───────────────────────────────────────────────────────────────────
+# ----- Totales ------
 
 def test_summary_births_positive():
+    # Debe haber nacimientos en la simulación
     s = make_summary()
     assert s.total_births > 0
 
 def test_summary_deaths_positive():
+    # Debe haber muertes en la simulación
     s = make_summary()
     assert s.total_deaths > 0
 
 def test_summary_final_alive_positive():
+    # Debe quedar al menos una persona viva
     s = make_summary()
     assert s.final_alive > 0
 
 def test_initial_pop_correct():
+    # La población inicial debe coincidir con M + H
     s = make_summary(M=100, H=100)
     assert s.initial_pop == 200
 
-# ── Distribuciones de edad ───────────────────────────────────────────────────
+
+# ----- Distribuciones de edad -------
 
 def test_age_dist_t0_range():
     """Edades en t=0 deben estar en [0, 100]."""
@@ -84,17 +96,20 @@ def test_age_dist_t100_non_empty():
     assert len(s.age_dist_t100) > 0
 
 def test_age_dist_t100_all_positive():
-    """Todos los vivos al final deben tener edad > 0."""
+    """Todos los vivos al final deben tener edad >= 0."""
     s = make_summary()
     assert all(a >= 0 for a in s.age_dist_t100)
 
-# ── Décadas ───────────────────────────────────────────────────────────────────
+
+# ------- Décadas ---------
 
 def test_births_per_decade_length():
+    # Debe haber 10 intervalos de décadas
     s = make_summary()
     assert len(s.births_per_decade) == 10
 
 def test_deaths_per_decade_length():
+    # Debe haber 10 intervalos de décadas
     s = make_summary()
     assert len(s.deaths_per_decade) == 10
 
@@ -104,21 +119,26 @@ def test_births_per_decade_sum_matches_total():
     assert sum(s.births_per_decade) == s.total_births
 
 def test_deaths_per_decade_non_negative():
+    # Ninguna década puede tener un conteo negativo de muertes
     s = make_summary()
     assert all(d >= 0 for d in s.deaths_per_decade)
 
-# ── Multi-corrida ─────────────────────────────────────────────────────────────
+
+# ------ Multi-corrida ------
 
 def _make_multi(n=5):
+    # Construye n resúmenes independientes con semillas distintas
     summaries = [make_summary(seed=i) for i in range(n)]
     return MultiRunAnalysis(n_runs=n, summaries=summaries)
 
 def test_multi_mean_positive():
+    # La media de población final y nacimientos debe ser positiva
     m = _make_multi()
     assert m.mean("final_alive") > 0
     assert m.mean("total_births") > 0
 
 def test_multi_std_non_negative():
+    # La desviación estándar nunca debe ser negativa
     m = _make_multi()
     assert m.std("final_alive") >= 0
 
@@ -136,17 +156,21 @@ def test_multi_trajectory_length():
     assert len(years) == len(means) == len(stds) == 11
 
 def test_multi_trajectory_stds_non_negative():
+    # Todas las desviaciones estándar por año deben ser no negativas
     m = _make_multi()
     _, _, stds = m.pop_trajectory()
     assert all(s >= 0 for s in stds)
 
 def test_growth_rate_type():
+    # growth_rate debe devolver un float
     s = make_summary()
     assert isinstance(s.growth_rate, float)
 
-# ── Ejecución directa ─────────────────────────────────────────────────────────
+
+# ------ Ejecución directa ------
 
 if __name__ == "__main__":
+    # Lista manual de tests para poder ejecutarlos sin pytest
     tests = [
         test_snapshots_count, test_snapshots_years,
         test_snapshots_population_non_negative, test_ratio_fm_range,
@@ -162,6 +186,8 @@ if __name__ == "__main__":
         test_multi_trajectory_stds_non_negative, test_growth_rate_type,
     ]
     passed = failed = 0
+
+    # Ejecuta cada test y contabiliza resultados
     for t in tests:
         try:
             t()
@@ -170,4 +196,5 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"  ✘  {t.__name__}  →  {e}")
             failed += 1
+
     print(f"\n  {passed}/{passed+failed} tests pasaron")
